@@ -1,13 +1,26 @@
 {
   "name": "vboxmanage-rest-api",
   "description": "VirtualBox REST API",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Papn Kukn",
   "license": "MIT",
-  "main": "server.js",
+  "main": "lib/webservice.js",
+  "bin": {
+    "vboxmanage-rest-api": "bin/vboxmanage-rest-api.js"
+  },
+  "scripts": {
+    "test": "nodeunit test/vboxmanage.js"
+  },
   "dependencies": {
     "body-parser": "~1.8.1",
     "express": "~4.9.0",
     "morgan": "^1.4.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/papnkukn/vboxmanage-rest-api"
+  },
+  "bugs": {
+    "url": "https://github.com/papnkukn/vboxmanage-rest-api/issues"
   }
 }

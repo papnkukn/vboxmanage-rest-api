@@ -4,10 +4,13 @@ var path = require('path');
 var express = require('express');
 var logger = require('morgan');
 var bodyParser = require('body-parser');
-var VBoxManage = require('./lib/VBoxManage.js');
+
+var config = {
+  prefix: "/", //REST API route prefix, e.g. "/" for root or "/api/v1" etc.
+  verbose: process.env.NODE_VERBOSE == "true" || process.env.NODE_VERBOSE == "1"
+};
 
 //Command line arguments
-var config = { };
 var args = process.argv.slice(2);
 for (var i = 0; i < args.length; i++) {
   switch (args[i]) {
@@ -23,6 +26,10 @@ for (var i = 0; i < args.length; i++) {
         console.error("Expected a numeric HTTP port number!");
         process.exit(3);
       }
+      break;
+      
+    case "--prefix":
+      config.prefix = args[++i];
       break;
       
     case "--vboxmanage":
@@ -53,7 +60,7 @@ function help() {
   console.log("Options:");
   console.log("  --help                 Print this message");
   console.log("  --port, -p [num]       HTTP port number, default: 8269");
-  //console.log("  --allow [cmd1[sub1,sub2,...],cmd2,...]   Allow only specific commands");
+  console.log("  --prefix [path]        URL prefix: '/' for root or '/api/v1' etc.");
   console.log("  --vboxmanage [path]    Path to vboxmanage executable");
   console.log("  --verbose              Enable detailed logging");
   console.log("  --version              Print version number");
@@ -61,17 +68,8 @@ function help() {
   console.log("Examples:");
   console.log("  vboxmanage-rest-api");
   console.log("  vboxmanage-rest-api --port 80");
-  //console.log("  vboxmanage-rest-api --allow dhcpserver[add,modify],natnetwork");
+  console.log("  vboxmanage-rest-api --prefix /api/v1 --verbose");
 }
-
-//Detailed console output
-function verbose(message) {
-  if (config.verbose || process.env.NODE_VERBOSE) {
-    console.log(message);
-  }
-}
-
-var vboxmanage = new VBoxManage(config);
 
 var app = express();
 app.startup = new Date();
@@ -82,57 +80,18 @@ app.uptime = function() {
 app.use(logger('dev'));
 app.use(bodyParser.json());
 
-//Wrapper around res.json function
-app.use(function(req, res, next) {
-  var f = res.json;
-  res.json = function(data) {
-    if (config.verbose) {
-      res.header("Content-Type", "application/json");
-      return res.end(JSON.stringify(data, " ", 2));
-    }
-    return f(data);
-  };
-  next();
-});
-
 //API status and version
-app.get("/api/v1", function(req, res, next) {
+app.get(config.prefix || "/", function(req, res, next) {
   var pkg = require('./package.json');
   res.json({ name: pkg.name, version: pkg.version, uptime: app.uptime() });
 });
 
-//Execute a VBoxManage command using GET method and arguments from query string
-var routes = [ "/api/v1/:command", "/api/v1/:command/:subcommands(*)" ];
-app.get(routes, function(req, res, next) {
-  var subcommands = (req.params.subcommands || "").split("/");
-  vboxmanage.exec(req.params.command, subcommands, req.query, function(error, result) {
-    if (error) return next(error);
-    
-    if (!config.verbose) {
-      //Hide security critical parameters
-      delete result.shell.command;
-      delete result.shell.directory;
-    }
-    
-    res.json(result);
-  });
-});
-
-//Execute a VBoxManage command using POST method and arguments in request body
-app.post(routes, function(req, res, next) {
-  var subcommands = (req.params.subcommands || "").split("/");
-  vboxmanage.exec(req.params.command, subcommands, req.body, function(error, result) {
-    if (error) return next(error);
-
-    if (!config.verbose) {
-      //Hide security critical parameters
-      delete result.shell.command;
-      delete result.shell.directory;
-    }
-    
-    res.json(result);
-  });
-});
+//Register the VBoxManage REST API with the prefix
+var vboxservice = require('./lib/webservice.js');
+app.use(config.prefix || "/", vboxservice({
+  vboxmanage: config.vboxmanage,
+  verbose: config.verbose
+}));
 
 //Catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -143,15 +102,15 @@ app.use(function(req, res, next) {
 
 //Error handler
 app.use(function(err, req, res, next) {
-  verbose(err);
+  if (config.verbose) {
+    console.error(err);
+  }
   
   //HTTP status code
   res.status(err.status || 500);
 
   //JSON output
-  err.error = err.message;
-  delete err.message;
-  return res.json(err);
+  return res.json({ error: err.message });
 });
 
 var port = config.port || 8269;
